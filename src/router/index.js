@@ -22,7 +22,7 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory('/kr27-30/'),
+  history: createWebHistory('/Vue-project/'),
   routes,
 })
 

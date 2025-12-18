@@ -552,7 +552,8 @@ label {
   padding: 0.45rem 0.9rem;
   border-radius: 999px;
   border: 1px solid #d1d5db;
-  background-color: #fff;
+  background-color: #f9fafb;
+  color: #374151;
   font-size: 0.85rem;
   cursor: pointer;
 }

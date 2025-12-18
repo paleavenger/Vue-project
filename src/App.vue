@@ -1,34 +1,51 @@
 <template>
   <div id="app">
     <header class="app-header">
-      <h1>🎯 Vue 3 Практика - Генератор цветовых палитр</h1>
-      <p>Практика 27: реактивность, директивы и работа с состоянием</p>
+      <h1>Генератор цветовых палитр</h1>
     </header>
 
     <nav class="navigation">
-      <button class="nav-button active" type="button">
-        Генератор палитр
-      </button>
+      <RouterLink
+        to="/"
+        class="nav-button"
+        active-class="active"
+        exact-active-class="active"
+      >
+        Генератор
+      </RouterLink>
+      <RouterLink
+        to="/library"
+        class="nav-button"
+        active-class="active"
+      >
+        Библиотека
+      </RouterLink>
+      <RouterLink
+        to="/export"
+        class="nav-button"
+        active-class="active"
+      >
+        Экспорт
+      </RouterLink>
     </nav>
 
     <main class="main-content">
-      <PaletteGenerator />
+      <RouterView v-slot="{ Component }">
+        <keep-alive>
+          <component :is="Component" />
+        </keep-alive>
+      </RouterView>
     </main>
 
     <footer class="app-footer">
-      <p>Vue 3 + Vite • Практика 27–28 • Генератор цветовых палитр</p>
+      <p>Vue 3 + Vite Практика 27–28 Генератор цветовых палитр</p>
     </footer>
   </div>
 </template>
 
 <script>
-import PaletteGenerator from './components/PaletteGenerator.vue'
-
 export default {
   name: 'App',
-  components: {
-    PaletteGenerator,
-  },
 }
 </script>
 

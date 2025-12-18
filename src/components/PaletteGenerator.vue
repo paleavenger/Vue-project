@@ -2,13 +2,48 @@
   <div class="palette-page">
     <section class="palette-header">
       <h2>Генератор цветовых палитр</h2>
-      <p>
-        Создавайте случайные палитры, закрепляйте понравившиеся цвета, копируйте значения и
-        просматривайте их в примере интерфейса.
-      </p>
     </section>
 
     <section class="palette-controls">
+      <div class="control-group">
+        <label for="base-color">Базовый цвет:</label>
+        <input
+          id="base-color"
+          v-model="baseColor"
+          type="color"
+          class="color-input"
+        />
+      </div>
+
+      <div class="control-group">
+        <label for="palette-type">Тип палитры:</label>
+        <select
+          id="palette-type"
+          v-model="paletteType"
+          class="select-input"
+        >
+          <option value="random">Случайная</option>
+          <option value="analogous">Аналогичная</option>
+          <option value="monochrome">Монохромная</option>
+          <option value="triad">Триада</option>
+          <option value="complementary">Комплементарная</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="mood">Настроение палитры:</label>
+        <select
+          id="mood"
+          v-model="mood"
+          class="select-input"
+        >
+          <option value="none">Без настроения</option>
+          <option value="calm">Спокойная</option>
+          <option value="energetic">Энергичная</option>
+          <option value="professional">Профессиональная</option>
+        </select>
+      </div>
+
       <div class="control-group">
         <label for="color-count">Количество цветов:</label>
         <select
@@ -40,7 +75,7 @@
           class="primary-button"
           @click="generatePalette"
         >
-          Случайная палитра
+          Сгенерировать палитру
         </button>
       </div>
     </section>
@@ -127,11 +162,69 @@
         </div>
       </div>
     </section>
+
+    <section class="analysis-section">
+      <div class="analysis-header">
+        <h3>Анализ доступности (WCAG)</h3>
+        <p class="analysis-subtitle">
+          Контраст текста и фона, рекомендации по уровням AA / AAA и акцентным цветам.
+        </p>
+      </div>
+
+      <div class="analysis-grid">
+        <div class="analysis-block">
+          <h4>Контраст заголовка</h4>
+          <p>Коэффициент: {{ headerContrast.ratio.toFixed(2) }}:1</p>
+          <p>Уровень: {{ headerContrast.level }}</p>
+        </div>
+
+        <div class="analysis-block">
+          <h4>Контраст текста на карточке</h4>
+          <p>Коэффициент: {{ cardContrast.ratio.toFixed(2) }}:1</p>
+          <p>Уровень: {{ cardContrast.level }}</p>
+        </div>
+
+        <div class="analysis-block">
+          <h4>Название базового цвета</h4>
+          <p v-if="baseColorName.loading">Загрузка названия из внешнего API...</p>
+          <p v-else-if="baseColorName.error">Не удалось получить название цвета.</p>
+          <p v-else>Цвет {{ baseColor }} — {{ baseColorName.name }}</p>
+        </div>
+
+        <div class="analysis-block">
+          <h4>Рекомендуемый акцент</h4>
+          <div class="accent-preview">
+            <div
+              class="accent-color-sample"
+              :style="{ backgroundColor: recommendedAccent.hex, color: recommendedAccent.textColor }"
+            >
+              {{ recommendedAccent.hex }}
+            </div>
+            <p>Контраст с фоном: {{ recommendedAccent.contrast.toFixed(2) }}:1</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-wheel-wrapper">
+        <h4>Цветовой круг</h4>
+        <div class="color-wheel">
+          <div
+            v-for="color in colors"
+            :key="color.id + '-marker'"
+            class="color-wheel-marker"
+            :style="getWheelMarkerStyle(color.hex)"
+          ></div>
+        </div>
+        <p class="color-wheel-caption">
+          Маркеры показывают оттенки текущей палитры на цветовом круге.
+        </p>
+      </div>
+    </section>
   </div>
 </template>
 
 <script>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onActivated, ref, watch } from 'vue'
 
 const STORAGE_KEY = 'palette-generator-current'
 
@@ -140,30 +233,73 @@ export default {
   setup() {
     const colorCount = ref(5)
     const colorFormat = ref('hex') // 'hex' | 'rgb'
+    const baseColor = ref('#667eea')
+    const paletteType = ref('random')
+    const mood = ref('none')
     const colors = ref([])
     const copyMessage = ref('')
     const isDarkPreview = ref(false)
     let copyTimeoutId = null
+    const baseColorName = ref({
+      loading: false,
+      error: false,
+      name: '',
+    })
+    
+    let isInitializing = false
 
-    const generateRandomColor = () => {
-      // Гармоничная палитра на основе одного тона (HSL)
-      const baseHue = Math.floor(Math.random() * 360)
-      const step = Math.floor(360 / Math.max(colorCount.value, 3))
+    const generateColorForIndex = (index) => {
+      const base = hexToHsl(baseColor.value)
+      let h = base.h
+      let s = base.s
+      let l = base.l
 
-      const used = new Set()
+      // Добавляем случайные вариации для разнообразия
+      const randomVariation = () => (Math.random() - 0.5) * 20
 
-      const nextHue = (index) => {
-        const h = (baseHue + step * index) % 360
-        if (used.has(h)) {
-          return (h + 15) % 360
+      const applyMood = () => {
+        if (mood.value === 'calm') {
+          s = Math.max(25, s - 20)
+          l = Math.min(80, l + 10)
+        } else if (mood.value === 'energetic') {
+          s = Math.min(90, s + 15)
+          l = Math.min(70, l + 5)
+        } else if (mood.value === 'professional') {
+          s = Math.max(20, Math.min(60, s))
+          l = Math.max(35, Math.min(70, l))
         }
-        used.add(h)
-        return h
       }
 
-      const index = colors.value.length
-      const hue = nextHue(index)
-      return hslToHex(hue, 70, 55)
+      switch (paletteType.value) {
+        case 'analogous':
+          h = (base.h + (index - Math.floor(colorCount.value / 2)) * 25 + randomVariation() + 360) % 360
+          s = Math.max(20, Math.min(100, s + randomVariation() * 0.5))
+          l = Math.max(20, Math.min(80, l + randomVariation() * 0.3))
+          break
+        case 'monochrome':
+          l = Math.min(85, Math.max(15, base.l + (index - 2) * 12 + randomVariation() * 0.5))
+          s = Math.max(10, Math.min(100, s + randomVariation() * 0.3))
+          break
+        case 'triad':
+          h = (base.h + index * 120 + randomVariation()) % 360
+          s = Math.max(30, Math.min(100, s + randomVariation() * 0.5))
+          l = Math.max(25, Math.min(75, l + randomVariation() * 0.3))
+          break
+        case 'complementary':
+          h = index % 2 === 0 ? (base.h + randomVariation() * 0.5 + 360) % 360 : (base.h + 180 + randomVariation() * 0.5) % 360
+          l = Math.min(80, Math.max(20, base.l + (index - 1) * 8 + randomVariation() * 0.3))
+          s = Math.max(30, Math.min(100, s + randomVariation() * 0.5))
+          break
+        case 'random':
+        default:
+          h = Math.floor(Math.random() * 360)
+          s = Math.max(30, Math.min(100, 50 + Math.random() * 50))
+          l = Math.max(25, Math.min(75, 40 + Math.random() * 35))
+          break
+      }
+
+      applyMood()
+      return hslToHex(h, s, l)
     }
 
     const regenerateColors = () => {
@@ -178,7 +314,7 @@ export default {
         } else {
           newColors.push({
             id: Date.now() + i,
-            hex: generateRandomColor(),
+            hex: generateColorForIndex(i),
             locked: false,
           })
         }
@@ -265,10 +401,89 @@ export default {
       }
     })
 
+    const contrastRatio = (hex1, hex2) => {
+      const l1 = relativeLuminance(hex1)
+      const l2 = relativeLuminance(hex2)
+      const lighter = Math.max(l1, l2)
+      const darker = Math.min(l1, l2)
+      return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    const wcagLevel = (ratio, isLargeText = false) => {
+      if (ratio >= 7) return 'AAA'
+      if (ratio >= 4.5) return isLargeText ? 'AAA (крупный текст)' : 'AA'
+      if (ratio >= 3 && isLargeText) return 'AA (крупный текст)'
+      return 'Недостаточно'
+    }
+
+    const headerContrast = computed(() => {
+      const ratio = contrastRatio(primaryColor.value, textColorOn(primaryColor.value))
+      return {
+        ratio,
+        level: wcagLevel(ratio, true),
+      }
+    })
+
+    const cardContrast = computed(() => {
+      const bg = backgroundColor.value
+      const text = previewStyles.value.cardText.color
+      const ratio = contrastRatio(bg, text)
+      return {
+        ratio,
+        level: wcagLevel(ratio, false),
+      }
+    })
+
+    const recommendedAccent = computed(() => {
+      const bg = backgroundColor.value
+      let best = colors.value[0] ? colors.value[0].hex : '#111827'
+      let bestRatio = contrastRatio(bg, best)
+      colors.value.forEach((c) => {
+        const r = contrastRatio(bg, c.hex)
+        if (r > bestRatio) {
+          best = c.hex
+          bestRatio = r
+        }
+      })
+      return {
+        hex: best,
+        contrast: bestRatio,
+        textColor: textColorOn(best),
+      }
+    })
+
+    const getWheelMarkerStyle = (hex) => {
+      const { h } = hexToHsl(hex)
+      return {
+        transform: `rotate(${h}deg) translate(0, -50%)`,
+        backgroundColor: hex,
+      }
+    }
+
+    const fetchBaseColorName = async () => {
+      try {
+        baseColorName.value = { loading: true, error: false, name: '' }
+        const hex = baseColor.value.replace('#', '')
+        const response = await fetch(`https://www.thecolorapi.com/id?hex=${hex}`)
+        if (!response.ok) throw new Error('Network error')
+        const data = await response.json()
+        baseColorName.value = {
+          loading: false,
+          error: false,
+          name: data?.name?.value || 'неизвестно',
+        }
+      } catch {
+        baseColorName.value = { loading: false, error: true, name: '' }
+      }
+    }
+
     const saveToStorage = () => {
       const payload = {
         colorCount: colorCount.value,
         colors: colors.value,
+        baseColor: baseColor.value,
+        paletteType: paletteType.value,
+        mood: mood.value,
       }
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
@@ -288,6 +503,9 @@ export default {
           return false
         }
         colorCount.value = parsed.colorCount || parsed.colors.length
+        if (parsed.baseColor) baseColor.value = parsed.baseColor
+        if (parsed.paletteType) paletteType.value = parsed.paletteType
+        if (parsed.mood) mood.value = parsed.mood
         colors.value = parsed.colors.map((c) => ({
           id: c.id || Date.now(),
           hex: c.hex,
@@ -299,25 +517,45 @@ export default {
       }
     }
 
-    onMounted(() => {
+    const initFromStorage = () => {
+      isInitializing = true
       const restored = loadFromStorage()
       if (!restored) {
         regenerateColors()
       }
+      fetchBaseColorName()
+      // Даём Vue обработать изменения, потом снимаем флаг
+      setTimeout(() => {
+        isInitializing = false
+      }, 0)
+    }
+
+    onMounted(() => {
+      initFromStorage()
+    })
+
+    // Для перезагрузки при возврате на вкладку (если используется keep-alive)
+    onActivated(() => {
+      initFromStorage()
     })
 
     watch(
       colorCount,
       () => {
-        regenerateColors()
-        saveToStorage()
+        if (!isInitializing) {
+          regenerateColors()
+          saveToStorage()
+        }
       },
     )
 
     watch(
-      colors,
+      [colors, baseColor, paletteType, mood],
       () => {
-        saveToStorage()
+        if (!isInitializing) {
+          saveToStorage()
+          fetchBaseColorName()
+        }
       },
       { deep: true },
     )
@@ -329,10 +567,18 @@ export default {
       copyMessage,
       isDarkPreview,
       previewStyles,
+      headerContrast,
+      cardContrast,
+      recommendedAccent,
+      baseColorName,
+      baseColor,
+      paletteType,
+      mood,
       generatePalette,
       toggleLock,
       copyColor,
       getDisplayValue,
+      getWheelMarkerStyle,
     }
   },
 }
@@ -355,6 +601,43 @@ function hslToHex(h, s, l) {
   return rgbToHex(r, g, b)
 }
 
+function hexToHsl(hex) {
+  const { r, g, b } = hexToRgb(hex)
+  const rNorm = r / 255
+  const gNorm = g / 255
+  const bNorm = b / 255
+  const max = Math.max(rNorm, gNorm, bNorm)
+  const min = Math.min(rNorm, gNorm, bNorm)
+  let h
+  let s
+  const l = (max + min) / 2
+
+  if (max === min) {
+    h = s = 0
+  } else {
+    const d = max - min
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    switch (max) {
+      case rNorm:
+        h = (gNorm - bNorm) / d + (gNorm < bNorm ? 6 : 0)
+        break
+      case gNorm:
+        h = (bNorm - rNorm) / d + 2
+        break
+      default:
+        h = (rNorm - gNorm) / d + 4
+        break
+    }
+    h /= 6
+  }
+
+  return {
+    h: Math.round(h * 360),
+    s: Math.round(s * 100),
+    l: Math.round(l * 100),
+  }
+}
+
 function rgbToHex(r, g, b) {
   const toHex = (c) => c.toString(16).padStart(2, '0')
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
@@ -373,6 +656,15 @@ function hexToRgb(hex) {
   const g = (num >> 8) & 255
   const b = num & 255
   return { r, g, b }
+}
+
+function relativeLuminance(hex) {
+  const { r, g, b } = hexToRgb(hex)
+  const srgb = [r, g, b].map((v) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  })
+  return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2]
 }
 </script>
 
@@ -429,6 +721,15 @@ label {
   border-radius: 8px;
   border: 1px solid #d1d5db;
   font-size: 0.95rem;
+}
+
+.color-input {
+  width: 56px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background-color: #fff;
 }
 
 .primary-button {
@@ -605,6 +906,92 @@ label {
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
+}
+
+.analysis-section {
+  margin-top: 1.5rem;
+  padding: 1.25rem 1.3rem 1.5rem;
+  background-color: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+}
+
+.analysis-header h3 {
+  margin-bottom: 0.3rem;
+}
+
+.analysis-subtitle {
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+.analysis-grid {
+  margin-top: 0.9rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.8rem;
+}
+
+.analysis-block {
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  font-size: 0.9rem;
+}
+
+.accent-preview {
+  margin-top: 0.4rem;
+}
+
+.accent-color-sample {
+  display: inline-block;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.color-wheel-wrapper {
+  margin-top: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.color-wheel {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: conic-gradient(
+    red,
+    yellow,
+    lime,
+    cyan,
+    blue,
+    magenta,
+    red
+  );
+  margin-top: 0.5rem;
+}
+
+.color-wheel-marker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transform-origin: 0 0;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+}
+
+.color-wheel-caption {
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  color: #6b7280;
 }
 
 @media (max-width: 768px) {
